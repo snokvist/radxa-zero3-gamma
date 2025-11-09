@@ -129,7 +129,7 @@ and include the following context so the model knows exactly what to deliver:
 ```text
 You are helping me tune the radxa-zero3 gamma LUT tool.
 - The command syntax is: ./gamma [--crtc <id>] <gamma_pow> <lift> <gain> <r> <g> <b>
-- Presets in presets.ini use: gamma=, lift=, gain=, r=, g=, b=, crtc=
+- Presets in presets.ini use: gamma=, lift=, gain=, r=, g=, b=
 - Valid ranges: gamma_pow 0.20-5.00, lift -0.50-0.50, gain 0.50-1.50, r/g/b 0.50-1.50
 Compare Image1 (current output) and Image2 (target look) and suggest values.
 Return:
