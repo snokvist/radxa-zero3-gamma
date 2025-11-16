@@ -4,11 +4,11 @@
 //   gcc -std=c11 -O2 -D_GNU_SOURCE -DDEFAULT_CRTC=68 gamma.c -o gamma $(pkg-config --cflags --libs libdrm) -lm
 //
 // Usage:
-//   ./gamma [--crtc <id>] <gamma_pow> [lift gain r g b]
-//   ./gamma [--crtc <id>] <preset-name>
-//   ./gamma --list
+//   ./gamma [--crtc <id>] [--presets <file>] <gamma_pow> [lift gain r g b]
+//   ./gamma [--crtc <id>] [--presets <file>] <preset-name>
+//   ./gamma [--presets <file>] --list
 //
-// Presets search order:
+// Presets search order (unless overridden with --presets <file>):
 //   1) ./presets.ini
 //   2) /etc/gamma-presets.ini
 //
@@ -55,10 +55,13 @@
 static void print_usage(const char *argv0) {
     fprintf(stderr,
         "Usage:\n"
-        "  %s [--crtc <id>] <gamma_pow> [lift gain r g b]\n"
-        "  %s [--crtc <id>] <preset-name>\n"
-        "  %s --list\n"
+        "  %s [--crtc <id>] [--presets <file>] <gamma_pow> [lift gain r g b]\n"
+        "  %s [--crtc <id>] [--presets <file>] <preset-name>\n"
+        "  %s [--presets <file>] --list\n"
         "Default CRTC: %u\n"
+        "Preset search order (unless --presets given):\n"
+        "  ./presets.ini\n"
+        "  /etc/gamma-presets.ini\n"
         "Ranges:\n"
         "  gamma ∈ [%.2f, %.2f]\n"
         "  lift  ∈ [%.2f, %.2f]\n"
@@ -242,7 +245,7 @@ static int load_preset_from_file(const char *path, const char *want, struct pres
     return status;
 }
 
-static int load_preset(const char *name, struct preset_vals *pv) {
+static int load_preset(const char *name, const char *preset_path, struct preset_vals *pv) {
     memset(pv, 0, sizeof(*pv));
 
     if (strcmp(name, "reset")==0) {
@@ -251,18 +254,32 @@ static int load_preset(const char *name, struct preset_vals *pv) {
         return 1;
     }
 
+    if (preset_path) {
+        return load_preset_from_file(preset_path, name, pv);
+    }
+
     int st = load_preset_from_file("./presets.ini", name, pv);
     if (st != 0) return st;
     st = load_preset_from_file("/etc/gamma-presets.ini", name, pv);
     return st; /* 1=ok, 0=not found, -1=error */
 }
 
-static void list_all_presets(void) {
+static void list_all_presets(const char *preset_path) {
     int total = 0;
-    if (file_exists("./presets.ini")) total += list_presets_from_file("./presets.ini");
-    if (file_exists("/etc/gamma-presets.ini")) total += list_presets_from_file("/etc/gamma-presets.ini");
+    if (preset_path) {
+        if (file_exists(preset_path)) {
+            total += list_presets_from_file(preset_path);
+        }
+    } else {
+        if (file_exists("./presets.ini")) total += list_presets_from_file("./presets.ini");
+        if (file_exists("/etc/gamma-presets.ini")) total += list_presets_from_file("/etc/gamma-presets.ini");
+    }
     if (total == 0) {
-        printf("No presets.ini found.\n");
+        if (preset_path) {
+            printf("No presets found in %s.\n", preset_path);
+        } else {
+            printf("No presets.ini found.\n");
+        }
     }
     printf("  reset\n"); /* built-in */
 }
@@ -352,26 +369,53 @@ static int set_gamma_lut(int fd, uint32_t crtc_id,
 /* ------------------- main ------------------- */
 
 int main(int argc, char **argv) {
-    if (argc == 2 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        print_usage(argv[0]); return 0;
-    }
-    if (argc == 2 && !strcmp(argv[1], "--list")) {
-        list_all_presets();
-        return 0;
-    }
-
     uint32_t crtc_id = DEFAULT_CRTC;
+    const char *preset_path = NULL;
+    bool list_mode = false;
 
-    /* Parse optional --crtc <id> */
     int i = 1;
-    if (i + 1 < argc && strcmp(argv[i], "--crtc") == 0) {
-        uint32_t tmp = 0;
-        if (!parse_uint32(argv[i+1], &tmp)) {
-            fprintf(stderr, "Invalid --crtc value: %s\n", argv[i+1]);
-            print_usage(argv[0]); return 2;
+    while (i < argc) {
+        if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+            print_usage(argv[0]);
+            return 0;
+        } else if (!strcmp(argv[i], "--list")) {
+            list_mode = true;
+            i++;
+        } else if (!strcmp(argv[i], "--crtc")) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--crtc requires an argument.\n");
+                return 2;
+            }
+            uint32_t tmp = 0;
+            if (!parse_uint32(argv[i+1], &tmp)) {
+                fprintf(stderr, "Invalid --crtc value: %s\n", argv[i+1]);
+                print_usage(argv[0]); return 2;
+            }
+            crtc_id = tmp;
+            i += 2;
+        } else if (!strcmp(argv[i], "--presets")) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--presets requires a filepath argument.\n");
+                return 2;
+            }
+            preset_path = argv[i+1];
+            i += 2;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            print_usage(argv[0]);
+            return 2;
+        } else {
+            break;
         }
-        crtc_id = tmp;
-        i += 2;
+    }
+
+    if (list_mode) {
+        if (i != argc) {
+            fprintf(stderr, "--list does not take positional arguments.\n");
+            return 2;
+        }
+        list_all_presets(preset_path);
+        return 0;
     }
 
     if (i >= argc) {
@@ -405,10 +449,10 @@ int main(int argc, char **argv) {
     } else {
         const char *preset = argv[i];
         struct preset_vals pv;
-        int st = load_preset(preset, &pv);
+        int st = load_preset(preset, preset_path, &pv);
         if (st == 0) {
             fprintf(stderr, "Preset '%s' not found.\n", preset);
-            list_all_presets();
+            list_all_presets(preset_path);
             return 2;
         }
         if (st < 0) {
