@@ -163,7 +163,7 @@ static int list_presets_from_file(const char *path) {
                 memcpy(name, line+1, len);
                 name[len] = '\0';
                 s_trim(name);
-                if (name[0]) {
+                if (name[0] && strcmp(name, "config") != 0) {
                     if (count == 0) printf("Available presets in %s:\n", path);
                     printf("  %s\n", name);
                     count++;
@@ -243,6 +243,71 @@ static int load_preset_from_file(const char *path, const char *want, struct pres
 
     fclose(f);
     return status;
+}
+
+/* return: 1=loaded, 0=not found, -1=parse error */
+static int load_config_crtc_from_file(const char *path, uint32_t *out_crtc) {
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+
+    char line[512];
+    bool in_config = false;
+    int status = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        char *sc = strpbrk(line, "#;");
+        if (sc) *sc = '\0';
+        s_trim(line);
+        if (!*line) continue;
+
+        if (line[0]=='[') {
+            char *rb = strchr(line, ']');
+            if (rb) {
+                *rb = '\0';
+                char name[256];
+                size_t len = strnlen(line+1, sizeof(name)-1);
+                memcpy(name, line+1, len);
+                name[len] = '\0';
+                s_trim(name);
+                in_config = (strcmp(name, "config") == 0);
+            }
+            continue;
+        }
+
+        if (!in_config) continue;
+
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        char *key = line;
+        char *val = eq + 1;
+        s_trim(key); s_trim(val);
+
+        if (strcmp(key, "crtc") == 0) {
+            uint32_t utmp;
+            if (parse_uint32(val, &utmp)) {
+                *out_crtc = utmp;
+                status = 1;
+            } else {
+                fprintf(stderr, "Invalid crtc in config: '%s'\n", val);
+                status = -1;
+            }
+            break;
+        }
+    }
+
+    fclose(f);
+    return status;
+}
+
+static int load_config_crtc(const char *preset_path, uint32_t *out_crtc) {
+    if (preset_path) {
+        return load_config_crtc_from_file(preset_path, out_crtc);
+    }
+
+    int st = load_config_crtc_from_file("./presets.ini", out_crtc);
+    if (st != 0) return st;
+    return load_config_crtc_from_file("/etc/gamma-presets.ini", out_crtc);
 }
 
 static int load_preset(const char *name, const char *preset_path, struct preset_vals *pv) {
@@ -370,6 +435,7 @@ static int set_gamma_lut(int fd, uint32_t crtc_id,
 
 int main(int argc, char **argv) {
     uint32_t crtc_id = DEFAULT_CRTC;
+    bool crtc_override = false;
     const char *preset_path = NULL;
     bool list_mode = false;
 
@@ -392,6 +458,7 @@ int main(int argc, char **argv) {
                 print_usage(argv[0]); return 2;
             }
             crtc_id = tmp;
+            crtc_override = true;
             i += 2;
         } else if (!strcmp(argv[i], "--presets")) {
             if (i + 1 >= argc) {
@@ -407,6 +474,13 @@ int main(int argc, char **argv) {
         } else {
             break;
         }
+    }
+
+    if (!crtc_override) {
+        uint32_t config_crtc = 0;
+        int st = load_config_crtc(preset_path, &config_crtc);
+        if (st < 0) return 2;
+        if (st > 0) crtc_id = config_crtc;
     }
 
     if (list_mode) {
@@ -488,4 +562,3 @@ int main(int argc, char **argv) {
     close(fd);
     return ret ? 1 : 0;
 }
-

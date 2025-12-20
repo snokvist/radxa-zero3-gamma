@@ -65,11 +65,16 @@ Presets live in simple INI files and are loaded in the following order:
 
 Section names map to preset names that can be supplied on the command line.
 Each section accepts the keys `gamma`, `lift`, `gain`, `r`, `g`, `b`, and an
-optional `crtc`. Keys can be omitted, in which case defaults are used.
+optional `crtc`. Keys can be omitted, in which case defaults are used. A
+special `[config]` section may set a default `crtc` for all invocations that do
+not pass `--crtc` (preset-specific `crtc` still wins).
 
 Example (`presets.ini`):
 
 ```ini
+[config]
+crtc=68
+
 [milos1]
 gamma=0.85
 lift=-0.10
