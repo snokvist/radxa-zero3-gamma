@@ -41,14 +41,14 @@
 #endif
 
 /* Safe bounds to avoid black/white screens */
-#define GAMMA_MIN 0.20
+#define GAMMA_MIN 0.10
 #define GAMMA_MAX 5.00
-#define LIFT_MIN  -0.50
-#define LIFT_MAX   0.50
-#define GAIN_MIN   0.50
-#define GAIN_MAX   1.50
-#define MULT_MIN   0.50
-#define MULT_MAX   1.50
+#define LIFT_MIN  -1.00
+#define LIFT_MAX   1.00
+#define GAIN_MIN   0.00
+#define GAIN_MAX  10.00
+#define MULT_MIN   0.00
+#define MULT_MAX   4.00
 
 /* ----------------- Helpers ----------------- */
 
@@ -390,7 +390,9 @@ static int set_gamma_lut(int fd, uint32_t crtc_id,
 
     for (uint32_t i = 0; i < lut_size; i++) {
         double x = (double)i / (double)(lut_size - 1);
-        double y = pow(fmax(0.0, x + lift), gamma_pow) * gain;
+        double y = pow(x, gamma_pow);
+        y += lift;
+        y *= gain;
         if (y < 0.0) y = 0.0;
         if (y > 1.0) y = 1.0;
 
